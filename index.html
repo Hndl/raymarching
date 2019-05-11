@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html>
+	<title>Ray Tracing</title>
+	
+	
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.6.0/p5.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/addons/p5.dom.min.js"></script>
+	<script type="text/javascript">
+		
+		var canvas = null;
+
+		var ray = [];
+		var obj = [];
+		var objCount = 15;
+		var MAXLIGHTPOINTS = 10;
+
+		var rad = 0;
+
+		var RayMove = false;
+		var CirclesMove = false;
+
+		class Ray {
+			
+			constructor ( _x, _y, _angle, _r = 30){
+				this.origin = createVector(_x,_y);
+				this.force = createVector(random(-0.5,0.9),random(-0.5,0.9));
+				this.angle = _angle;
+				this.r = _r;	
+				this.collisions= [];
+				this.showMarchingCircles = true;	
+				this.showMarchingBeam = true;		
+			}
+
+			showMarch() {
+				this.showMarchingCircles = !this.showMarchingCircles;
+			}
+
+			showBeam() {
+				this.showMarchingBeam = !this.showMarchingBeam;
+			}
+
+			move (_obj) {
+			
+				this.origin.add(this.force);
+
+ 				if ( (this.origin.x ) < 0 || (this.origin.x) > window.innerWidth )
+					this.force.x *= -1;
+
+				if ( (this.origin.y ) < 0 || (this.origin.y ) > window.innerHeight )
+					this.force.y *= -1;
+			}
+			
+			sweep ( _a = 0.01 ){
+				this.update( (_a + this.angle) );
+			}
+
+			update (_angle) {
+				this.angle = _angle;
+			}
+
+
+
+			show () {
+				const theta = p5.Vector.fromAngle(this.angle, this.r);
+				push();
+				translate(this.origin.x, this.origin.y);
+				stroke(0);
+				strokeWeight(2);
+				line(0,0,theta.x, theta.y);
+				pop();
+			}
+
+			determineBoundary ( _boundaries ) {
+
+				
+				const MAXATTEMPTS = 5;
+				let atempt = 0;
+				let currentPos = this.origin.copy();
+				this.drawPoint(this.origin.x,this.origin.y, 10);
+
+				while( true ) {
+
+					let minDistance = Infinity;
+					let minBoundary = null;
+					
+					for ( let boundary of _boundaries ){
+						let sd = null;
+						if ( boundary instanceof BoundaryRect )
+							sd = this.signedDistanceRect(currentPos, boundary, boundary.length);
+						else
+							sd = this.signedDistance(currentPos, boundary.shape, boundary.r);
+
+						if ( sd < minDistance ) {
+							minDistance = sd;
+							minBoundary = boundary;
+						}
+					}
+
+					const theta = p5.Vector.fromAngle(this.angle);
+					theta.setMag(minDistance);
+					
+					if ( currentPos.x > width || currentPos.x < 0 || currentPos.y < 0 || currentPos.y > height ){
+						break;
+					}
+					if ( minDistance < 1 ) {
+						this.drawLightPoint(currentPos.x, currentPos.y, 3);
+						this.drawPoint(this.origin.x,this.origin.y, 10);
+						this.collisions.push( currentPos.copy() ) ;
+						
+						break;
+					}
+
+					this.drawMarchPoint( currentPos, theta, minDistance);
+
+					currentPos.add(theta); // march to the next point
+					
+				}
+	
+			}
+
+			drawMarchPoint( _pos, _theta, _distance) {
+				
+				if ( !this.showMarchingCircles && !this.showMarchingBeam)
+					return;
+				push();
+				translate(_pos.x, _pos.y);
+				if ( this.showMarchingCircles ) {
+					noFill();
+					stroke(0,0,255);
+					strokeWeight(0.5);
+					ellipse ( 0, 0, _distance*2, _distance*2);
+				}
+
+				if ( this.showMarchingBeam ){
+					stroke(0,0,255);
+					strokeWeight(0.5);
+					line(0,0,_theta.x, _theta.y);
+				}
+				pop();
+
+			}
+
+			drawLightPoint(_x,_y,_r) {
+				
+				push();
+				translate(_x,_y);
+				stroke(0,0,0);
+				strokeWeight(_r);
+				point(0,0);
+				pop();
+			}
+			drawPoint(_x,_y,_r) {
+				
+				push();
+				translate(_x,_y);
+				stroke(0,0,255);
+				strokeWeight(2);
+				fill(255,0,0);
+				ellipse(0,0,_r,_r);
+				pop();
+			}
+			signedDistance( _origin, _target, _radius ) {
+				
+
+				const d = dist( _origin.x, _origin.y, _target.x, _target.y );
+				return ( d - _radius);
+			}
+
+					}
+
+		class BoundaryRect {
+
+			constructor(_x, _y, _w, _l, _id) {
+				this.shape = createVector(_x,_y);
+				this.length = _l;
+				this.width = _w;
+				this.force = createVector(random(-0.5,0.5),random(-0.5,0.5));
+				this.id = _id;
+				this.still = true;
+			}
+
+			update () {
+
+				//TODO update this to work for a square/rect
+				if ( this.still )
+					return;
+
+				this.shape.add(this.force);
+				if ( (this.shape.x - this.r) < 0 || (this.shape.x + this.r) > window.innerWidth )
+					this.force.x *= -1;
+
+				if ( (this.shape.y - this.r) < 0 || (this.shape.y + this.r) > window.innerHeight )
+					this.force.y *= -1;
+			}
+
+			freeze() {
+				this.still = !this.still;
+			}
+
+			show(){
+					
+				push();
+				translate(this.shape.x, this.shape.y); // centre of the rect.
+				noFill();
+				stroke(100,100,100);
+				strokeWeight(0.5);
+				rectMode(CENTER);
+				rect(this.shape.x, this.shape.y, 100, 100);
+				pop();
+
+			}
+
+		}
+
+		class Boundary {
+
+			constructor(_x, _y, _r, _id) {
+				this.shape = createVector(_x,_y);
+				this.force = createVector(random(-0.5,0.5),random(-0.5,0.5));
+				this.id = _id;
+				this.r = _r;
+				
+				this.still = true;
+			}
+
+			update () {
+				if ( this.still )
+					return;
+
+				this.shape.add(this.force);
+				if ( (this.shape.x - this.r) < 0 || (this.shape.x + this.r) > window.innerWidth )
+					this.force.x *= -1;
+
+				if ( (this.shape.y - this.r) < 0 || (this.shape.y + this.r) > window.innerHeight )
+					this.force.y *= -1;
+			}
+
+			freeze() {
+				this.still = !this.still;
+			}
+
+			show(){
+					
+				push();
+				translate(this.shape.x, this.shape.y);
+				noFill();
+				stroke(100,100,100);
+				strokeWeight(0.5);
+				ellipse ( 0, 0, this.r*2, this.r*2);
+				pop();
+
+			}
+
+		}
+	
+
+		/***
+		 *
+		 *
+		 *
+		 *
+		 *
+		 *
+		 **/
+		
+		function mouseClicked() {
+			ray.push ( new Ray(mouseX,mouseY,0,100) );
+		}
+
+		function keyPressed() {
+			if (keyCode === 49){//1
+				for ( b of obj ){
+					b.freeze();
+				}
+		 	}
+
+		 	if (keyCode === 50){//2
+ 				for ( r of ray ){
+					r.showMarch();
+				}
+		 	}
+
+		 	if (keyCode === 51){//3
+ 				for ( r of ray ){
+					r.showBeam();
+				}
+		 	}
+
+			if (keyCode === 52){//4
+		 		ray = [];
+		 	}
+
+		 	if (keyCode === 53){//5
+		 		ray = [];
+ 				for ( let a = 0.0 ; a < (2*PI) ; a +=0.01){
+    				ray.push ( new Ray(mouseX,mouseY,a,100));
+				}
+		 	}
+
+
+		 	if (keyCode === 54){//6
+		 		ray = [];
+ 				for ( let a = 0.0 ; a < (2*PI) ; a +=0.05){
+    				ray.push ( new Ray(mouseX,mouseY,a,100));
+				}
+		 	}
+
+		 	if (keyCode === 55){//7
+		 		ray = [];
+ 				for ( let a = 0.0 ; a < (2*PI) ; a +=0.1){
+    				ray.push ( new Ray(mouseX,mouseY,a,100));
+				}
+		 	}
+
+		 	if (keyCode === 38) {
+		 		MAXLIGHTPOINTS+=20;
+		 	}
+		 	if (keyCode === 40){
+		 		MAXLIGHTPOINTS-=20;
+		 	}
+
+		 	if (MAXLIGHTPOINTS < 10)
+		 		MAXLIGHTPOINTS = 20;
+
+						 
+
+		 	//console.log(`data : ${keyCode} maxpoints:${MAXLIGHTPOINTS}`);
+		}
+
+
+		function preload() {
+
+		}
+
+		function setup() {
+			canvas = createCanvas(window.innerWidth, window.innerHeight);
+    		
+
+    		for ( let i = 0 ; i < objCount ; i++){
+    			let x = random(0,window.width);
+    			let y = random(0,window.height);
+    			let r = random(20,100);
+    			
+    			obj.push(new Boundary(x,y,r,""+i));
+    			//obj.push( new BoundaryRect(200,200,50,60, ""+i));
+    		}
+    		//console.table(obj);
+    		ray.push ( new Ray(100,height/2,100,100));
+ 		}
+
+ 		function renderLightPoint( _x, _y){
+ 			push();
+			translate(_x,_y);
+			stroke(255,255,255);
+			strokeWeight(1);
+			point(0,0);
+			pop();
+ 		}
+
+ 		function draw() {
+			
+			background(0);
+			
+			for ( b of obj ){
+				b.update();
+				b.show();
+			}
+
+			for ( r of ray) {
+				//r.move(obj);
+				r.determineBoundary(obj);
+				r.sweep();
+				for ( light of r.collisions )
+					renderLightPoint(light.x, light.y);
+				
+				if ( r.collisions.length > MAXLIGHTPOINTS )
+					r.collisions.splice(0,(r.collisions.length-MAXLIGHTPOINTS));
+			}
+
+			
+
+			
+
+			
+
+			
+		}
+		
+	
+	</script>
+<body>
+
+</body>
+</html>
